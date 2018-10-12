@@ -8,6 +8,8 @@ namespace TicTacToe.Core
 
     public interface IBoard
     {
+        event System.Action<CellSign> OnGameEnd;
+
         int Columns { get; }
         int Rows { get; }
         CellSign Winner { get; }

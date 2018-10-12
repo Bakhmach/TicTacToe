@@ -28,14 +28,11 @@ namespace TicTacToe.Network
 
     public sealed class GameServer : BaseServer
     {
-        public const int playerMax = 2;
-
-        private List<NetPlayer> players = new List<NetPlayer>(playerMax);
-        private IBoard board = new ClassicBoard();
+        private IRules<NetPlayer> rules = new ClassicRules<NetPlayer>(new ClassicBoard());
 
         public override void ShutDown()
         {
-            players.Clear();
+            rules.RemoveAllPlayers();
             base.ShutDown();
         }
 
@@ -49,45 +46,42 @@ namespace TicTacToe.Network
 
         private void OnPlayerReady(NetworkMessage netMsg)
         {
-            //check if all players ready for next round
             bool allReady = true;
-            for(int i = 0; i < players.Count; ++i)
+            foreach (var player in rules)
             {
-                if(players[i].Connection.connectionId == netMsg.conn.connectionId)
+                if (player.Connection.connectionId == netMsg.conn.connectionId)
                 {
-                    players[i].Ready = true;
+                    player.Ready = true;
                 }
 
-                if (!players[i].Ready) allReady = false;
+                if (!player.Ready) allReady = false;
             }
 
-            if (players.Count == playerMax && allReady) StartNewRound();
+            if (rules.PlayersAll() && allReady)
+            {
+                rules.NewGame();
+                StartNewRound();
+            }
         }
 
         private void OnMakeTurn(NetworkMessage netMsg)
         {
             var msg = netMsg.ReadMessage<MakeTurnMessage>();
 
-            board.MakeTurn(msg.index, msg.whoseTurnWas);
+            rules.Board.MakeTurn(msg.index, msg.whoseTurnWas);
             SendAll((short)MessageType.MakeTurn, msg);
 
-            if(board.Winner != CellSign.None || board.IsFullMarked)
+            if(rules.Board.Winner != CellSign.None || rules.Board.IsFullMarked)
             {
-                //Setup score and ready status
-                foreach(var player in players)
+                foreach (var player in rules)
                 {
-                    if (player.Sign == board.Winner) player.Score++;
                     player.Ready = false;
-                }
 
-                //Send end round message for all players
-                for (int i = 0; i < players.Count; ++i)
-                {
-                    Send(players[i].Connection.connectionId, (short)MessageType.EndRound, new EndRoundMessage
+                    Send(player.Connection.connectionId, (short)MessageType.EndRound, new EndRoundMessage
                     {
-                        winner = board.Winner,
-                        yourScore = players[i].Score,
-                        enemyScore = players[(i + 1) % playerMax].Score
+                        winner = rules.Board.Winner,
+                        yourScore = player.Score,
+                        enemyScore = rules.OtherPlayer(player).Score
                     });
                 }
             }
@@ -95,34 +89,26 @@ namespace TicTacToe.Network
 
         protected override void OnConnected(NetworkMessage netMsg)
         {
-            if (players.Count > playerMax)
+            if (!rules.AddPlayer(new NetPlayer(netMsg.conn)))
             {
                 netMsg.conn.Disconnect();
                 return;
             }
-
-            players.Add(new NetPlayer(netMsg.conn));
         }
 
         private void StartNewRound()
         {
-            board.Clear();
+            rules.NewRound();
 
-            CellSign firstTurn = UnityEngine.Random.value > 0.5f ? CellSign.Cross : CellSign.Nought;
-
-            bool rand = UnityEngine.Random.value > 0.5f;
-            players[0].Sign = rand ? CellSign.Cross : CellSign.Nought;
-            players[1].Sign = !rand ? CellSign.Cross : CellSign.Nought;
-
-            for (int i = 0; i < players.Count; ++i)
+            foreach (var player in rules)
             {
-                Send(players[i].Connection.connectionId, (short)MessageType.NewRound,
+                Send(player.Connection.connectionId, (short)MessageType.NewRound,
                     new StartNewRoundMessage
                     {
-                        yourSign = players[i].Sign,
-                        whoseTurn = firstTurn,
-                        yourScore = players[i].Score,
-                        enemyScore = players[(i + 1) % playerMax].Score
+                        yourSign = player.Sign,
+                        whoseTurn = rules.FirstTurn,
+                        yourScore = player.Score,
+                        enemyScore = rules.OtherPlayer(player).Score
                     });
             }
         }

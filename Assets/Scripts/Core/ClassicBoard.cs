@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -6,6 +7,8 @@ namespace TicTacToe.Core
 {
     public class ClassicBoard : IBoard
     {
+        public event Action<CellSign> OnGameEnd = delegate { };
+
         private const int columns = 3;
         private const int rows = 3;
         private CellSign winner = CellSign.None;
@@ -58,6 +61,11 @@ namespace TicTacToe.Core
         {
             cells[index] = sign;
             CheckWinner();
+
+            if(Winner != CellSign.None || IsFullMarked)
+            {
+                OnGameEnd(Winner);
+            }
         }
 
         public void Clear()
